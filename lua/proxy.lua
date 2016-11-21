@@ -20,7 +20,7 @@ end
 local request_uri = ngx.var.request_uri
 -- ngx.say(request_uri)
 
-local auth_req = ngx.req.get_headers()["http_x_proxy_cas_loginname"]
+local auth_req = ngx.req.get_headers()["Authorization"]
 
 if not auth_req then
     ngx.status = 401
