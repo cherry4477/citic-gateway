@@ -1,7 +1,7 @@
 package.path = package.path .. ";/usr/local/openresty/nginx/lualib/?.lua"
 
 
-local redisClient = require "resty.redis"
+local tokentool = require "comm.tokentool"
 
 
 local function auth_by_basic(user_info)
@@ -30,5 +30,7 @@ end
 --  curl -i -H 'http-x-proxy-cas-loginname: hello' /
 
 ngx.header["hello"]='waorld';
-ngx.header["Authorization"]="Bearer " .. auth_req
+-- ngx.header["Authorization"]="Bearer " .. auth_req
+ngx.header["Authorization"]=tokentool.echo(auth_req)
+ngx.req.set_header("Authorization",tokentool.echo(auth_req))
 ngx.say(ngx.header);

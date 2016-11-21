@@ -69,4 +69,8 @@ function _M.gen_token(username)
     return token, rawtoken
 end
 
+function _M.echo(username)
+    return "Bearer "..username
+end
+
 return _M
