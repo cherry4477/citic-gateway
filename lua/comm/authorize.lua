@@ -3,9 +3,15 @@ local _M = { _VERSION = '0.01' }
 
 local redis = require "resty.redis"
 local http = require "resty.http"
+local strutil = require "resty.string"
 
 
-local alive_time = 3600 * 6
+local redis_host = os.getenv("REDIS_HOST")
+local redis_port = strutil.atoi(os.getenv("REDIS_PORT"))
+local redis_password = os.getenv("REDIS_PASSWORD")
+
+local api_server = os.getenv("API_SERVER_ADDR")
+
 
 function _M.new(self)
     local mt = {
@@ -18,44 +24,35 @@ end
 
 local function connect()
     local redisClient = redis:new()
+
+
     redisClient:set_timeout(1000)
     -- local findservice = require "comm.service"
     -- local redis_host,redis_port=findservice.findservice(os.getenv("REDIS_SERVICE_NAME"))
-    local ok, err = redisClient:connect("192.168.3.38", 6379)
+    local ok, err = redisClient:connect(redis_host, redis_port)
     if not ok then
-        ngx.say("failed to connect redis server: ", err)
+        ngx.log(ngx.ERR, "failed to connect redis server ("..redis_host..":"..redis_port.."): "..err)
         return false
     end
 
-    -- local res, err = redisClient:auth("foobared")
-    -- if not res then
-    --     ngx.say("failed to authenticate: ", err)
-    --     return
-    -- end
+    if string.len(redis_password) > 0 then
+        local res, err = redisClient:auth(redis_password)
+        if not res then
+            ngx.log(ngx.ERR, "failed to authenticate with password '"..redis_password.."': ".. err)
+            return
+        end
+    end
 
     -- ngx.say("ok connect redis.")
     ok, err = redisClient:select(1)
     if not ok then
+        ngx.log(ngx.ERR,"redisClient:select(1) error: "..err)
         return false
     end
     -- ngx.say("redisClient:select(1)")
     return redisClient
 end
 
-function _M.add_token(self, key, value)
-    local redisClient = connect()
-    if redisClient == false then
-        return false
-    end
-
-    local ok, err = redisClient:setex(key, alive_time,  value)
-    if not ok then
-        ngx.say("setex error: ", err)
-        return false
-    end
-    -- ngx.say("setex ok.",token,alive_time,username)
-    return true
-end
 
 function _M.add_bearer_token_ttl(self, key, ttl, value)
     local redisClient = connect()
@@ -63,9 +60,9 @@ function _M.add_bearer_token_ttl(self, key, ttl, value)
         return false
     end
 
-    local ok, err = redisClient:setex(key, ttl, value)
+    local ok, err = redisClient:setex(key, ttl - 3600, value) -- reduce 1 hour ttl
     if not ok then
-        ngx.say("setex error: ", err)
+        ngx.log(ngx.ERR, "setex error: ".. err)
         return false
     end
     -- ngx.say("setex ok.",token,alive_time,username)
@@ -75,7 +72,7 @@ end
 function _M.del_token(self, token)
     local redisClient = connect()
     if redisClient == false then
-        return false
+        return ngx.null
     end
     redisClient:del(token)
     return true
@@ -84,13 +81,13 @@ end
 function _M.has_token(self, key)
     local redisClient = connect()
     if redisClient == false then
-        return false
+        return ngx.null
     end
 
     local res, err = redisClient:get(key)
     if not res then
         ngx.say("no token")
-        return false
+        return ngx.null
     end
     return res
 end
@@ -186,7 +183,15 @@ end
 function _M.auth(self, username)
 
     local httpc = http.new()
-    local res, err = httpc:request_uri("https://192.168.3.38:8443/oauth/authorize?client_id=openshift-challenging-client&response_type=token", {
+    local auth_url = ""
+
+    if string.len(api_server)> 0 then
+        auth_url = "https://"..api_server.."/oauth/authorize?client_id=openshift-challenging-client&response_type=token"
+    else
+        ngx.log(ngx.ERR,"API_SERVER_ADDR must be sepcified.")
+    end
+
+    local res, err = httpc:request_uri(auth_url, {
         method = "GET",
         headers = {
             Authorization = self:basic_auth(username),
@@ -195,7 +200,8 @@ function _M.auth(self, username)
     })
 
     if not res then
-        ngx.say("failed to request: ", err)
+        -- ngx.say("failed to request: ", err)
+        ngx.log(ngx.ERR, "failed to request: " .. err)
         return
     end
 
