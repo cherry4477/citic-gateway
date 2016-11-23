@@ -2,11 +2,19 @@ local _M = { _VERSION = '0.01' }
 
 
 local redis = require "resty.redis"
+local http = require "resty.http"
 
--- local aes = require "resty.aes"
--- local str = require "resty.string"
 
 local alive_time = 3600 * 6
+
+function _M.new(self)
+    local mt = {
+        __index = _M,
+    }
+
+    return setmetatable({}, mt)
+end
+
 
 local function connect()
     local redisClient = redis:new()
@@ -19,7 +27,7 @@ local function connect()
         return false
     end
 
-    -- local res, err = red:auth("foobared")
+    -- local res, err = redisClient:auth("foobared")
     -- if not res then
     --     ngx.say("failed to authenticate: ", err)
     --     return
@@ -34,22 +42,22 @@ local function connect()
     return redisClient
 end
 
-function _M.add_token(token, username)
+function _M.add_token(self, key, value)
     local redisClient = connect()
     if redisClient == false then
         return false
     end
 
-    local ok, err = redisClient:setex(token, alive_time,  username)
+    local ok, err = redisClient:setex(key, alive_time,  value)
     if not ok then
-        ngx.say("setex error",err)
+        ngx.say("setex error: ", err)
         return false
     end
     -- ngx.say("setex ok.",token,alive_time,username)
     return true
 end
 
-function _M.add_bearer_token_ttl(key,ttl,value)
+function _M.add_bearer_token_ttl(self, key, ttl, value)
     local redisClient = connect()
     if redisClient == false then
         return false
@@ -57,14 +65,14 @@ function _M.add_bearer_token_ttl(key,ttl,value)
 
     local ok, err = redisClient:setex(key, ttl, value)
     if not ok then
-        ngx.say("setex error",err)
+        ngx.say("setex error: ", err)
         return false
     end
     -- ngx.say("setex ok.",token,alive_time,username)
     return true
 end
 
-function _M.del_token(token)
+function _M.del_token(self, token)
     local redisClient = connect()
     if redisClient == false then
         return false
@@ -73,7 +81,7 @@ function _M.del_token(token)
     return true
 end
 
-function _M.has_token(key)
+function _M.has_token(self, key)
     local redisClient = connect()
     if redisClient == false then
         return false
@@ -88,26 +96,22 @@ function _M.has_token(key)
 end
 
 -- generate basic authorization
-function _M.basic_auth(username)
+function _M.basic_auth(self, username)
     local basic = username .. ":" .. username
-    return "Basic ".. ngx.encode_base64(basic)
+    return "Basic " .. ngx.encode_base64(basic)
 end
 
-function _M.bearer_auth(token)
-    return "Bearer ".. token
+-- function _M.bearer_auth(token)
+--     return "Bearer " .. token
+-- end
+
+function _M.auth_str(self, authtype, authstr)
+    return authtype .. " " ..  authstr
+    -- body
 end
 
 
-function _M.echo(username)
-    return "Bearer "..username
-end
-
-
-
-
-
-
-function _M.parse_uri(url, default)
+function _M.parse_uri(self, url, default)
     -- initialize default parameters
     local parsed = {}
     -- for i,v in base.pairs(default or parsed) do parsed[i] = v end
@@ -159,8 +163,7 @@ function _M.parse_uri(url, default)
 end
 
 
-
-function _M.split(str, pat)
+function _M.split(self, str, pat)
     local t = {}  -- NOTE: use {n = 0} in Lua-5.0
     local fpat = "(.-)" .. pat
     local last_end = 1
@@ -180,14 +183,13 @@ function _M.split(str, pat)
 end
 
 
-function _M.auth(username)
+function _M.auth(self, username)
 
-    local http = require "resty.http"
     local httpc = http.new()
     local res, err = httpc:request_uri("https://192.168.3.38:8443/oauth/authorize?client_id=openshift-challenging-client&response_type=token", {
         method = "GET",
         headers = {
-            Authorization = _M.basic_auth(username),
+            Authorization = self:basic_auth(username),
         },
         ssl_verify=false
     })
@@ -209,24 +211,14 @@ function _M.auth(username)
 
     -- ngx.say(res.status,res.body)
 
-    local location = res.headers.Location
+    local parsed_uri = self:parse_uri(res.headers.Location)
 
-    -- ngx.say(location)
+    local m = self:split(parsed_uri.fragment, '&')
+    local token = {}
 
-    local parsed_uri = _M.parse_uri(location)
-    -- for k,v in pairs(parsed_uri) do
-    --     ngx.say(k..": "..v)
-    -- end
-
-    local fragment=parsed_uri.fragment
-    -- ngx.say(fragment)
-
-    local m = _M.split(fragment,'&')
-    local token={}
-
-    for k,v in pairs(m) do
-        local member = _M.split(v,'=')
-        token[member[1]]=member[2]
+    for k, v in pairs(m) do
+        local member = self:split(v, '=')
+        token[member[1]] = member[2]
     end
 
     return token
@@ -240,6 +232,5 @@ function _M.auth(username)
     -- token[access_token]=3IPdy8gaBMppT4Ry__PWk4yK2y2Go_fadrX1HoeJgXM
 
 end
-
 
 return _M
