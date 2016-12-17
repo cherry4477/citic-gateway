@@ -2,6 +2,7 @@ package.path = package.path .. ";/usr/local/openresty/nginx/lualib/?.lua"
 
 
 local authorize = require "comm.authorize"
+local json = require "cjson"
 
 local function sessionToken(username)
     local tokentool = authorize.new()
@@ -11,8 +12,10 @@ local function sessionToken(username)
         ngx.status = 401
     else
         ngx.status = 200
-        ngx.header["access_token"] = tokencache
-        ngx.say(tokencache)
+        local tokenvalue = tokentool:split(tokencache,' ')
+        local token = json.encode{ access_token = tokenvalue[2] }
+        ngx.header["access_token"] = tokenvalue[2]
+        ngx.say(token)
     end
     return
 end
